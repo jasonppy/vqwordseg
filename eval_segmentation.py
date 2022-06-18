@@ -87,6 +87,7 @@ def get_intervals_from_dir(directory, filenames=None):
     return interval_dict
 
 
+
 def intervals_to_max_overlap(ref_intervals, pred_intervals, ref_labels=None):
     """
     Each interval is mapped to the reference label with maximum overlap.

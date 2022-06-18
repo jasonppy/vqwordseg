@@ -13,7 +13,7 @@ from scipy.stats import gamma
 from tqdm import tqdm
 import numpy as np
 import sys
-
+import os
 sys.path.append(str(Path(__file__).parent/"../../dpdp_aernn"))
 
 
@@ -569,7 +569,8 @@ def dpdp_aernn(utterance_list, dur_weight=3.0):
     n_symbols_max = 50  # 25  # 50
     # n_epochs_max = 5
     n_epochs_max = None     # determined from n_max_steps and batch size
-    n_steps_max = 1500      # 2500  # 1500  # 1000  # None
+    n_steps_max = 256820    # 22841*20 = 456820  # 2500  # 1500  # 1000  # None
+    # n_steps_max = 1
     # n_steps_max = None    # only use n_epochs_max
     bidirectional_encoder = False
 
@@ -602,97 +603,103 @@ def dpdp_aernn(utterance_list, dur_weight=3.0):
         )
     model = models.EncoderDecoder(encoder, decoder)    
 
+    if os.path.isfile("/saltpool0/scratch/pyp/dpdp/ae_rnn/model.pth"):
+        model.load_state_dict(torch.load("/saltpool0/scratch/pyp/dpdp/ae_rnn/model.pth")['model'])
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        model = model.to(device)
+    else:
+        # TRAINING
 
-    # TRAINING
+        # Training device
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        model = model.to(device)
 
-    # Training device
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model = model.to(device)
+        # Training data
+        train_dataset = datasets.WordDataset(
+            cur_train_sentences, text_to_id, n_symbols_max=n_symbols_max
+            )
+        train_loader = DataLoader(
+            train_dataset, batch_size=batch_size, shuffle=True,
+            collate_fn=datasets.pad_collate
+            )
 
-    # Training data
-    train_dataset = datasets.WordDataset(
-        cur_train_sentences, text_to_id, n_symbols_max=n_symbols_max
-        )
-    train_loader = DataLoader(
-        train_dataset, batch_size=batch_size, shuffle=True,
-        collate_fn=datasets.pad_collate
-        )
+        # # Validation data
+        # val_dataset = datasets.WordDataset(cur_val_sentences, text_to_id)
+        # val_loader = DataLoader(
+        #     val_dataset, batch_size=batch_size, shuffle=True,
+        #     collate_fn=datasets.pad_collate
+        #     )
 
-    # # Validation data
-    # val_dataset = datasets.WordDataset(cur_val_sentences, text_to_id)
-    # val_loader = DataLoader(
-    #     val_dataset, batch_size=batch_size, shuffle=True,
-    #     collate_fn=datasets.pad_collate
-    #     )
+        # Loss
+        criterion = nn.NLLLoss(
+            reduction="sum", ignore_index=symbol_to_id[PAD_SYMBOL]
+            )
+        optimiser = torch.optim.Adam(model.parameters(), lr=learning_rate)
 
-    # Loss
-    criterion = nn.NLLLoss(
-        reduction="sum", ignore_index=symbol_to_id[PAD_SYMBOL]
-        )
-    optimiser = torch.optim.Adam(model.parameters(), lr=learning_rate)
+        if n_epochs_max is None:
+            steps_per_epoch = np.ceil(len(cur_train_sentences)/batch_size)
+            n_epochs_max = int(np.ceil(n_steps_max/steps_per_epoch))
 
-    if n_epochs_max is None:
-        steps_per_epoch = np.ceil(len(cur_train_sentences)/batch_size)
-        n_epochs_max = int(np.ceil(n_steps_max/steps_per_epoch))
+        print("Training AE-RNN:")
+        i_step = 0
+        for i_epoch in range(n_epochs_max):
 
-    print("Training AE-RNN:")
-    i_step = 0
-    for i_epoch in range(n_epochs_max):
+            # Training
+            model.train()
+            train_losses = []
+            for i_batch, (data, data_lengths) in enumerate(tqdm(train_loader)):
+                optimiser.zero_grad()
+                data = data.to(device)       
+                encoder_embedding, decoder_output = model(
+                    data, data_lengths, data, data_lengths
+                    )
 
-        # Training
-        model.train()
-        train_losses = []
-        for i_batch, (data, data_lengths) in enumerate(tqdm(train_loader)):
-            optimiser.zero_grad()
-            data = data.to(device)       
-            encoder_embedding, decoder_output = model(
-                data, data_lengths, data, data_lengths
+                loss = criterion(
+                    decoder_output.contiguous().view(-1, decoder_output.size(-1)),
+                    data.contiguous().view(-1)
+                    )
+                loss /= len(data_lengths)
+                loss.backward()
+                optimiser.step()
+                train_losses.append(loss.item())
+                i_step += 1
+                if i_step == n_steps_max and n_steps_max is not None:
+                    break
+            
+            # # Validation
+            # model.eval()
+            # val_losses = []
+            # with torch.no_grad():
+            #     for i_batch, (data, data_lengths) in enumerate(val_loader):
+            #         data = data.to(device)            
+            #         encoder_embedding, decoder_output = model(
+            #             data, data_lengths, data, data_lengths
+            #             )
+
+            #         loss = criterion(
+            #             decoder_output.contiguous().view(-1,
+            #             decoder_output.size(-1)), data.contiguous().view(-1)
+            #             )
+            #         loss /= len(data_lengths)
+            #         val_losses.append(loss.item())
+            
+            # print(
+            #     "Epoch {}, train loss: {:.3f}, val loss: {:.3f}".format(
+            #     i_epoch,
+            #     np.mean(train_losses),
+            #     np.mean(val_losses))
+            #     )
+            print(
+                f"Epoch {i_epoch}, train loss: {np.mean(train_losses):.3f}"
                 )
+            sys.stdout.flush()
 
-            loss = criterion(
-                decoder_output.contiguous().view(-1, decoder_output.size(-1)),
-                data.contiguous().view(-1)
-                )
-            loss /= len(data_lengths)
-            loss.backward()
-            optimiser.step()
-            train_losses.append(loss.item())
-            i_step += 1
             if i_step == n_steps_max and n_steps_max is not None:
                 break
-        
-        # # Validation
-        # model.eval()
-        # val_losses = []
-        # with torch.no_grad():
-        #     for i_batch, (data, data_lengths) in enumerate(val_loader):
-        #         data = data.to(device)            
-        #         encoder_embedding, decoder_output = model(
-        #             data, data_lengths, data, data_lengths
-        #             )
 
-        #         loss = criterion(
-        #             decoder_output.contiguous().view(-1,
-        #             decoder_output.size(-1)), data.contiguous().view(-1)
-        #             )
-        #         loss /= len(data_lengths)
-        #         val_losses.append(loss.item())
-        
-        # print(
-        #     "Epoch {}, train loss: {:.3f}, val loss: {:.3f}".format(
-        #     i_epoch,
-        #     np.mean(train_losses),
-        #     np.mean(val_losses))
-        #     )
-        print(
-            f"Epoch {i_epoch}, train loss: {np.mean(train_losses):.3f}"
-            )
-        sys.stdout.flush()
-
-        if i_step == n_steps_max and n_steps_max is not None:
-            break
-
-
+        save_fn = "/saltpool0/scratch/pyp/dpdp/ae_rnn/model.pth"
+        print(f"save model weights at {save_fn}")
+        torch.save({'model': model.state_dict()}, save_fn)
     # SEGMENTATION
 
     def get_segmented_sentence(ids, boundaries):

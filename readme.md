@@ -58,11 +58,18 @@ going.
 
         ./vq_phoneseg.py --downsample_factor 1 --dur_weight 2 \
             --input_format=txt --algorithm=dp_penalized cpc_big buckeye val
+        
+        in my case: 
+        python vq_phoneseg.py --downsample_factor 1 --dur_weight 2 \
+        --input_format=txt --algorithm=dp_penalized
 
 4.  Perform word segmentation on the discovered units using the DPDP AE-RNN:
-
+        
         ./vq_wordseg.py --algorithm=dpdp_aernn \
             cpc_big buckeye val phoneseg_dp_penalized
+
+        in my case:
+        python vq_wordseg_new.py --algorithm dpdp_aernn
 
 5.  Evaluate the segmentation:
 
