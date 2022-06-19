@@ -738,11 +738,122 @@ def dpdp_aernn(utterance_list, dur_weight=3.0):
         drop_last=False
         )
 
-    # Apply model to data
+    # # Apply model to data
+    # model.decoder.teacher_forcing_ratio = 1.0
+    # model.eval()
+    # rnn_losses = []
+    # lengths = []
+    # print("Embedding segments:")
+    # with torch.no_grad():
+    #     for i_batch, (data, data_lengths) in enumerate(tqdm(segment_loader)):
+    #         data = data.to(device)
+            
+    #         encoder_embedding, decoder_output = model(
+    #             data, data_lengths, data, data_lengths
+    #             )
+
+    #         for i_item in range(data.shape[0]):
+    #             item_loss = criterion(
+    #                 decoder_output[i_item].contiguous().view(-1,
+    #                 decoder_output[i_item].size(-1)),
+    #                 data[i_item].contiguous().view(-1)
+    #                 )
+    #             rnn_losses.append(item_loss.cpu().numpy())
+    #             lengths.append(data_lengths[i_item])
+
+    # # Segment
+    # i_item = 0
+    # losses = []
+    # cur_segmented_sentences = []
+    # print("Segmenting:")
+    # for i_sentence, intervals in enumerate(tqdm(interval_dataset.intervals)):
+        
+    #     # Costs for segment intervals
+    #     costs = np.inf*np.ones(len(intervals))
+    #     i_eos = intervals[-1][-1]
+    #     for i_seg, interval in enumerate(intervals):
+    #         if interval is None:
+    #             continue
+    #         i_start, i_end = interval
+    #         dur = i_end - i_start
+    #         assert dur == lengths[i_item]
+    #         eos = (i_end == i_eos)  # end-of-sequence
+            
+    #         # Chorowski
+    #         costs[i_seg] = (
+    #             rnn_losses[i_item]
+    #             + dur_weight*neg_chorowski(dur)
+    #             )
+            
+    # #         # Gamma
+    # #         costs[i_seg] = (
+    # #             rnn_losses[i_item]
+    # #             + dur_weight*neg_log_gamma(dur)
+    # #             + np.log(np.sum(gamma_cache**dur_weight))
+    # #             )
+            
+    # #         # Poisson
+    # #         costs[i_seg] = (
+    # #             rnn_losses[i_item]
+    # #             + neg_log_poisson(dur)
+    # #             )
+
+    # #         # Histogram
+    # #         costs[i_seg] = (
+    # #             rnn_losses[i_item]
+    # #             + dur_weight*(neg_log_hist(dur))
+    # #             + np.log(np.sum(histogram**dur_weight))
+    # #             )
+        
+    # #         # Sequence boundary
+    # #         alpha = 0.3  # 0.3  # 0.9
+    # #         if eos:
+    # #             costs[i_seg] += -np.log(alpha)
+    # #         else:
+    # #             costs[i_seg] += -np.log(1 - alpha)
+    # # #             K = 5000
+    # # #             costs[i_seg] += -np.log((1 - alpha)/K)
+
+    #         # Temp
+    # #         if dur > 10 or dur <= 1:
+    # #             costs[i_seg] = +np.inf
+    #         i_item += 1
+        
+    #     # Viterbi segmentation
+    #     n_frames = len(interval_dataset.sentences[i_sentence])
+    #     summed_cost, boundaries = viterbi.custom_viterbi(costs, n_frames)
+    #     losses.append(summed_cost)
+        
+    #     reference_sentence = sentences[i_sentence]
+    #     segmented_sentence = get_segmented_sentence(
+    #             interval_dataset.sentences[i_sentence],
+    #             boundaries
+    #             )
+    #     cur_segmented_sentences.append(segmented_sentence)
+    # #     # Print examples of the first few sentences
+    # #     if i_sentence < 10:
+    # #         print(reference_sentence)
+    # #         print(segmented_sentence)
+    # #         print()
+        
+    # print(f"NLL: {np.sum(losses):.4f}")
+
+    # return cur_segmented_sentences
+
+    # # # print(utterance_list[:10])
+    # # assert False
+
+
+# Apply model to data
     model.decoder.teacher_forcing_ratio = 1.0
     model.eval()
     rnn_losses = []
     lengths = []
+
+    i_item = 0
+    losses = []
+    cur_segmented_sentences = []
+
     print("Embedding segments:")
     with torch.no_grad():
         for i_batch, (data, data_lengths) in enumerate(tqdm(segment_loader)):
@@ -753,92 +864,124 @@ def dpdp_aernn(utterance_list, dur_weight=3.0):
                 )
 
             for i_item in range(data.shape[0]):
+                i_sentence = i_batch * batch_size + i_item
+                intervals = interval_dataset.intervals[i_sentence]
                 item_loss = criterion(
                     decoder_output[i_item].contiguous().view(-1,
                     decoder_output[i_item].size(-1)),
                     data[i_item].contiguous().view(-1)
                     )
-                rnn_losses.append(item_loss.cpu().numpy())
-                lengths.append(data_lengths[i_item])
+                cur_rnn_loss = item_loss.cpu().numpy()
+                cur_length = data_lengths[i_item]
+                costs = np.inf*np.ones(len(intervals))
+                i_eos = intervals[-1][-1]
+                for i_seg, interval in enumerate(intervals):
+                    if interval is None:
+                        continue
+                    i_start, i_end = interval
+                    dur = i_end - i_start
+                    assert dur == cur_length
+                    eos = (i_end == i_eos)  # end-of-sequence
+                    
+                    # Chorowski
+                    costs[i_seg] = (
+                        cur_rnn_loss
+                        + dur_weight*neg_chorowski(dur)
+                        )
+                # Viterbi segmentation
+                n_frames = len(interval_dataset.sentences[i_sentence])
+                summed_cost, boundaries = viterbi.custom_viterbi(costs, n_frames)
+                losses.append(summed_cost)
+                
+                reference_sentence = sentences[i_sentence]
+                segmented_sentence = get_segmented_sentence(
+                        interval_dataset.sentences[i_sentence],
+                        boundaries
+                        )
+                cur_segmented_sentences.append(segmented_sentence)
 
-    # Segment
-    i_item = 0
-    losses = []
-    cur_segmented_sentences = []
-    print("Segmenting:")
-    for i_sentence, intervals in enumerate(tqdm(interval_dataset.intervals)):
-        
-        # Costs for segment intervals
-        costs = np.inf*np.ones(len(intervals))
-        i_eos = intervals[-1][-1]
-        for i_seg, interval in enumerate(intervals):
-            if interval is None:
-                continue
-            i_start, i_end = interval
-            dur = i_end - i_start
-            assert dur == lengths[i_item]
-            eos = (i_end == i_eos)  # end-of-sequence
-            
-            # Chorowski
-            costs[i_seg] = (
-                rnn_losses[i_item]
-                + dur_weight*neg_chorowski(dur)
-                )
-            
-    #         # Gamma
-    #         costs[i_seg] = (
-    #             rnn_losses[i_item]
-    #             + dur_weight*neg_log_gamma(dur)
-    #             + np.log(np.sum(gamma_cache**dur_weight))
-    #             )
-            
-    #         # Poisson
-    #         costs[i_seg] = (
-    #             rnn_losses[i_item]
-    #             + neg_log_poisson(dur)
-    #             )
-
-    #         # Histogram
-    #         costs[i_seg] = (
-    #             rnn_losses[i_item]
-    #             + dur_weight*(neg_log_hist(dur))
-    #             + np.log(np.sum(histogram**dur_weight))
-    #             )
-        
-    #         # Sequence boundary
-    #         alpha = 0.3  # 0.3  # 0.9
-    #         if eos:
-    #             costs[i_seg] += -np.log(alpha)
-    #         else:
-    #             costs[i_seg] += -np.log(1 - alpha)
-    # #             K = 5000
-    # #             costs[i_seg] += -np.log((1 - alpha)/K)
-
-            # Temp
-    #         if dur > 10 or dur <= 1:
-    #             costs[i_seg] = +np.inf
-            i_item += 1
-        
-        # Viterbi segmentation
-        n_frames = len(interval_dataset.sentences[i_sentence])
-        summed_cost, boundaries = viterbi.custom_viterbi(costs, n_frames)
-        losses.append(summed_cost)
-        
-        reference_sentence = sentences[i_sentence]
-        segmented_sentence = get_segmented_sentence(
-                interval_dataset.sentences[i_sentence],
-                boundaries
-                )
-        cur_segmented_sentences.append(segmented_sentence)
-    #     # Print examples of the first few sentences
-    #     if i_sentence < 10:
-    #         print(reference_sentence)
-    #         print(segmented_sentence)
-    #         print()
-        
     print(f"NLL: {np.sum(losses):.4f}")
 
     return cur_segmented_sentences
+    
+    # # Segment
+    # i_item = 0
+    # losses = []
+    # cur_segmented_sentences = []
+    # print("Segmenting:")
+    # for i_sentence, intervals in enumerate(tqdm(interval_dataset.intervals)):
+        
+    #     # Costs for segment intervals
+    #     costs = np.inf*np.ones(len(intervals))
+    #     i_eos = intervals[-1][-1]
+    #     for i_seg, interval in enumerate(intervals):
+    #         if interval is None:
+    #             continue
+    #         i_start, i_end = interval
+    #         dur = i_end - i_start
+    #         assert dur == lengths[i_item]
+    #         eos = (i_end == i_eos)  # end-of-sequence
+            
+    #         # Chorowski
+    #         costs[i_seg] = (
+    #             rnn_losses[i_item]
+    #             + dur_weight*neg_chorowski(dur)
+    #             )
+            
+    # #         # Gamma
+    # #         costs[i_seg] = (
+    # #             rnn_losses[i_item]
+    # #             + dur_weight*neg_log_gamma(dur)
+    # #             + np.log(np.sum(gamma_cache**dur_weight))
+    # #             )
+            
+    # #         # Poisson
+    # #         costs[i_seg] = (
+    # #             rnn_losses[i_item]
+    # #             + neg_log_poisson(dur)
+    # #             )
 
-    # # print(utterance_list[:10])
-    # assert False
+    # #         # Histogram
+    # #         costs[i_seg] = (
+    # #             rnn_losses[i_item]
+    # #             + dur_weight*(neg_log_hist(dur))
+    # #             + np.log(np.sum(histogram**dur_weight))
+    # #             )
+        
+    # #         # Sequence boundary
+    # #         alpha = 0.3  # 0.3  # 0.9
+    # #         if eos:
+    # #             costs[i_seg] += -np.log(alpha)
+    # #         else:
+    # #             costs[i_seg] += -np.log(1 - alpha)
+    # # #             K = 5000
+    # # #             costs[i_seg] += -np.log((1 - alpha)/K)
+
+    #         # Temp
+    # #         if dur > 10 or dur <= 1:
+    # #             costs[i_seg] = +np.inf
+    #         i_item += 1
+        
+    #     # Viterbi segmentation
+    #     n_frames = len(interval_dataset.sentences[i_sentence])
+    #     summed_cost, boundaries = viterbi.custom_viterbi(costs, n_frames)
+    #     losses.append(summed_cost)
+        
+    #     reference_sentence = sentences[i_sentence]
+    #     segmented_sentence = get_segmented_sentence(
+    #             interval_dataset.sentences[i_sentence],
+    #             boundaries
+    #             )
+    #     cur_segmented_sentences.append(segmented_sentence)
+    # #     # Print examples of the first few sentences
+    # #     if i_sentence < 10:
+    # #         print(reference_sentence)
+    # #         print(segmented_sentence)
+    # #         print()
+        
+    # print(f"NLL: {np.sum(losses):.4f}")
+
+    # return cur_segmented_sentences
+
+    # # # print(utterance_list[:10])
+    # # assert False
