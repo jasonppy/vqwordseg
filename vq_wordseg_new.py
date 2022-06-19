@@ -76,92 +76,107 @@ def main():
     #     input_dir
     #     )
     # utterances = phoneseg_interval_dict.keys()
-    with open(input_dir/"phoneseg_dict.pkl", "rb") as f:
-        temp = pickle.load(f)
-    phoneseg_interval_dict = temp['data']
-    index = temp['inter']
-    # # Temp
-    # print(list(utterances)[228], list(utterances)[5569])
-    # assert False
+    for iii in range(11):
+        with open(input_dir/f"phoneseg_dict_{iii}.pkl", "rb") as f:
+            temp = pickle.load(f)
+        phoneseg_interval_dict = temp['data']
+        index = temp['inter']
+        # # Temp
+        # print(list(utterances)[228], list(utterances)[5569])
+        # assert False
 
-    # Segmentation
-    print(datetime.now())
-    print("Segmenting:")
-    prepared_text = []
-    for j, utt_key in enumerate(phoneseg_interval_dict):
-        # print("".join([str(i[2]) + "_" for i in phoneseg_interval_dict[utt_key]]))
-        # raise
-        prepared_text.append(
-                " ".join([str(i[2]) + "_" for i in phoneseg_interval_dict[utt_key]])
-                )
-        # if j >= 20:
-        #     break
-    # prepared_text.append(
-    #     " ".join(phoneseg_interval_dict[stem][inter] + "_" for stem in index for inter in index[stem])
-    # )
-    if args.dur_weight is not None:
-        word_segmentation = segment_func(
-            prepared_text, dur_weight=args.dur_weight
-            )
-    else:
-        word_segmentation = segment_func(
-            prepared_text
-            )
-    print(datetime.now())
-    # print(prepared_text[:10])
-    # print(word_segmentation[:10])
-    # assert False
-    wordseg_interval_dict = {}
-    for i_utt, utt_key in tqdm(enumerate(phoneseg_interval_dict)):
-        words_segmented = word_segmentation[i_utt].split(" ")
-        word_start = 0
-        word_label = ""
-        i_word = 0
-        wordseg_interval_dict[utt_key] = []
-        for (phone_start,
-                phone_end, phone_label) in phoneseg_interval_dict[utt_key]:
-            word_label += str(phone_label) + "_"
-            if i_word >= len(words_segmented):
-                wordseg_interval_dict[utt_key].append((
-                    word_start, phoneseg_interval_dict[utt_key][-1][1],
-                    "999_" #word_label
-                    ))
-                break
-            if words_segmented[i_word] == word_label:
-                wordseg_interval_dict[utt_key].append((
-                    word_start, phone_end, word_label
-                    ))
-                word_label = ""
-                word_start = phone_end
-                i_word += 1
-        # if i_utt >= 20:
-        #     break
-    # Write intervals
-    output_dir = (
-        Path(args.feature_dir)/args.output_tag/"intervals"
-        )
-    output_dir.mkdir(exist_ok=True, parents=True)
-    word_seg_dict = {}
-    # k = 0
-    # flag=True
-    for stem in index:
-        word_seg_dict[stem] = {}
-        for inter in index[stem]:
-            # if k >= 20:
-            #     flag = False
+        # Segmentation
+        print(datetime.now())
+        print("Segmenting:")
+        prepared_text = []
+        # print(len(list(phoneseg_interval_dict)))
+        for j, utt_key in enumerate(phoneseg_interval_dict):
+            # print(j)
+            # print("".join([str(i[2]) + "_" for i in phoneseg_interval_dict[utt_key]]))
+            # raise
+            prepared_text.append(
+                    " ".join([str(i[2]) + "_" for i in phoneseg_interval_dict[utt_key]])
+                    )
+            # if j >= 20:
             #     break
-            word_seg_dict[stem][inter] = [(item[0], item[1]) for item in wordseg_interval_dict[stem+inter]]
-            # k += 1
-        # if not flag:
-        #     break
-    print("Writing to: {}".format(output_dir/"wordseg_dict.pkl"))
-    with open(output_dir/"wordseg_dict.pkl", "wb") as f:
-        pickle.dump(word_seg_dict, f)
-    # for utt_key in tqdm(wordseg_interval_dict):
-    #     with open((output_dir/utt_key).with_suffix(".txt"), "w") as f:
-    #         for start, end, label in wordseg_interval_dict[utt_key]:
-    #             f.write("{:d} {:d} {}\n".format(start, end, label))
+        # prepared_text.append(
+        #     " ".join(phoneseg_interval_dict[stem][inter] + "_" for stem in index for inter in index[stem])
+        # )
+        if args.dur_weight is not None:
+            word_segmentation = segment_func(
+                prepared_text, dur_weight=args.dur_weight
+                )
+        else:
+            word_segmentation = segment_func(
+                prepared_text
+                )
+        print(datetime.now())
+        # print(prepared_text[:10])
+        # print(word_segmentation[:10])
+        # assert False
+        wordseg_interval_dict = {}
+        for i_utt, utt_key in tqdm(enumerate(phoneseg_interval_dict)):
+            words_segmented = word_segmentation[i_utt].split(" ")
+            word_start = 0
+            word_label = ""
+            i_word = 0
+            wordseg_interval_dict[utt_key] = []
+            for (phone_start,
+                    phone_end, phone_label) in phoneseg_interval_dict[utt_key]:
+                word_label += str(phone_label) + "_"
+                if i_word >= len(words_segmented):
+                    wordseg_interval_dict[utt_key].append((
+                        word_start, phoneseg_interval_dict[utt_key][-1][1],
+                        "999_" #word_label
+                        ))
+                    break
+                if words_segmented[i_word] == word_label:
+                    wordseg_interval_dict[utt_key].append((
+                        word_start, phone_end, word_label
+                        ))
+                    word_label = ""
+                    word_start = phone_end
+                    i_word += 1
+            # if i_utt >= 20:
+            #     break
+        # Write intervals
+        output_dir = (
+            Path(args.feature_dir)/args.output_tag/"intervals"
+            )
+        output_dir.mkdir(exist_ok=True, parents=True)
+        word_seg_dict = {}
+        # k = 0
+        # flag=True
+        for stem in index:
+            word_seg_dict[stem] = {}
+            for inter in index[stem]:
+                # if k >= 20:
+                #     flag = False
+                #     break
+                word_seg_dict[stem][inter] = [(item[0], item[1]) for item in wordseg_interval_dict[stem+inter]]
+                # k += 1
+            # if not flag:
+            #     break
+        print("Writing to: {}".format(output_dir/"wordseg_dict.pkl"))
+        with open(output_dir/f"wordseg_dict_{str(iii)}.pkl", "wb") as f:
+            pickle.dump(word_seg_dict, f)
+        # for utt_key in tqdm(wordseg_interval_dict):
+        #     with open((output_dir/utt_key).with_suffix(".txt"), "w") as f:
+        #         for start, end, label in wordseg_interval_dict[utt_key]:
+        #             f.write("{:d} {:d} {}\n".format(start, end, label))
 
 
 if __name__ == "__main__":
     main()
+
+# # chop training set into 11 parts, so that training is doable in terms of memory
+# import tqdm
+# all_keys = list(total_ind.keys())
+# for i in tqdm.tqdm(range(11)):
+#     cur_pkl = {"data":{}, "inter":{}}
+#     for key in all_keys[i*51561: (i+1)*51561]:
+#         cur_pkl['inter'][key] = total["inter"][key]
+#         for inter in total["inter"][key]:
+#             cur_pkl['data'][key+inter] = total['data'][key+inter]
+#     with open("/saltpool0/scratch/pyp/dpdp/data/phoneseg_dp_penalized/intervals/phoneseg_dict_"+str(i)+".pkl", "wb") as f:
+#         pickle.dump(cur_pkl, f)
